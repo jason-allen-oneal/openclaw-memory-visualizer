@@ -19,8 +19,57 @@ const simulation = d3.forceSimulation()
     .force("x", d3.forceX(width / 2).strength(0.05))
     .force("y", d3.forceY(height / 2).strength(0.05));
 
+let graphData = null;
+
+function changeView(mode) {
+    if (!graphData) return;
+
+    if (mode === 'force') {
+        simulation
+            .force("x", d3.forceX(width / 2).strength(0.05))
+            .force("y", d3.forceY(height / 2).strength(0.05))
+            .force("link", d3.forceLink().id(d => d.id).distance(100))
+            .force("charge", d3.forceManyBody().strength(-150))
+            .alphaTarget(0.3).restart();
+    } else if (mode === 'timeline') {
+        // Arrange files along X axis, other nodes near them
+        const files = graphData.nodes.filter(n => n.type === 'file').sort((a, b) => a.id.localeCompare(b.id));
+        const fileMap = new Map(files.map((f, i) => [f.id, i]));
+        
+        simulation
+            .force("x", d3.forceX(d => {
+                if (d.type === 'file') return (fileMap.get(d.id) / files.length) * width + 50;
+                // If linked to a file, pull towards that file's position
+                const link = graphData.links.find(l => l.source.id === d.id || l.target.id === d.id);
+                if (link) {
+                    const otherId = link.source.id === d.id ? link.target.id : link.source.id;
+                    if (fileMap.has(otherId)) return (fileMap.get(otherId) / files.length) * width + 50;
+                }
+                return width / 2;
+            }).strength(0.8))
+            .force("y", d3.forceY(height / 2).strength(0.1))
+            .force("charge", d3.forceManyBody().strength(-30))
+            .alphaTarget(0.3).restart();
+    } else if (mode === 'cluster') {
+        // Cluster by type
+        const typePos = {
+            'file': { x: width * 0.25, y: height * 0.25 },
+            'concept': { x: width * 0.75, y: height * 0.25 },
+            'tag': { x: width * 0.25, y: height * 0.75 },
+            'event': { x: width * 0.75, y: height * 0.75 }
+        };
+
+        simulation
+            .force("x", d3.forceX(d => typePos[d.type]?.x || width / 2).strength(0.5))
+            .force("y", d3.forceY(d => typePos[d.type]?.y || height / 2).strength(0.5))
+            .force("charge", d3.forceManyBody().strength(-50))
+            .alphaTarget(0.3).restart();
+    }
+}
+
 async function loadGraph() {
     const data = await d3.json("/api/graph");
+    graphData = data;
     
     const link = container.append("g")
         .attr("class", "links")
