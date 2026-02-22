@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const { discoverFiles, parseFile, buildGraph } = require('./parser');
 
 const app = express();
@@ -58,10 +59,46 @@ app.get('/api/source', (req, res) => {
   }
 
   try {
-    const content = require('fs').readFileSync(fullPath, 'utf8');
+    const content = fs.readFileSync(fullPath, 'utf8');
     res.send(content);
   } catch (err) {
     res.status(404).json({ error: 'File not found' });
+  }
+});
+
+app.put('/api/source', (req, res) => {
+  const { path: filePath, content } = req.body || {};
+  if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'Missing path' });
+  if (typeof content !== 'string') return res.status(400).json({ error: 'Missing content' });
+
+  const fullPath = path.resolve(SIGNAL_GRAPH_ROOT, filePath);
+
+  // Security: must remain under root
+  if (!fullPath.startsWith(SIGNAL_GRAPH_ROOT)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  // Safety: only allow editing markdown files
+  if (!fullPath.toLowerCase().endsWith('.md')) {
+    return res.status(400).json({ error: 'Only .md files are editable' });
+  }
+
+  try {
+    if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'File not found' });
+
+    // Backup before write (same directory)
+    const backupPath = `${fullPath}.bak-${Date.now()}`;
+    fs.copyFileSync(fullPath, backupPath);
+
+    fs.writeFileSync(fullPath, content, 'utf8');
+
+    // Invalidate cache so the graph refreshes soon
+    cachedGraph = null;
+    lastParseTime = 0;
+
+    return res.json({ ok: true, backup: path.relative(SIGNAL_GRAPH_ROOT, backupPath) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 

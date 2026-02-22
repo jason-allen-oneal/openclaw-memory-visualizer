@@ -21,6 +21,66 @@ const simulation = d3.forceSimulation()
 
 let graphData = null;
 
+let currentEditablePath = null;
+let lastLoadedText = '';
+let isEditing = false;
+
+const editorControls = document.getElementById('editor-controls');
+const btnEdit = document.getElementById('btn-edit');
+const btnSave = document.getElementById('btn-save');
+const btnCancel = document.getElementById('btn-cancel');
+const saveStatus = document.getElementById('save-status');
+const sourceEl = document.getElementById('node-source');
+
+function setEditing(on) {
+    isEditing = on;
+    sourceEl.readOnly = !on;
+    btnEdit.style.display = on ? 'none' : 'inline-block';
+    btnSave.style.display = on ? 'inline-block' : 'none';
+    btnCancel.style.display = on ? 'inline-block' : 'none';
+    saveStatus.textContent = '';
+}
+
+btnEdit.addEventListener('click', () => {
+    if (!currentEditablePath) return;
+    setEditing(true);
+    sourceEl.focus();
+});
+
+btnCancel.addEventListener('click', () => {
+    if (!currentEditablePath) return;
+    sourceEl.value = lastLoadedText;
+    setEditing(false);
+});
+
+btnSave.addEventListener('click', async () => {
+    if (!currentEditablePath) return;
+    saveStatus.textContent = 'SAVING...';
+
+    try {
+        const res = await fetch('/api/source', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: currentEditablePath, content: sourceEl.value })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+
+        lastLoadedText = sourceEl.value;
+        saveStatus.textContent = 'SAVED.';
+        setEditing(false);
+
+        // Invalidate client graph view: reload graph next time (cheap)
+        // You can uncomment to force a full reload immediately.
+        // location.reload();
+    } catch (e) {
+        saveStatus.textContent = `ERROR: ${e.message}`;
+    }
+});
+
 async function loadGraph() {
     const data = await d3.json("/api/graph");
     graphData = data;
@@ -50,7 +110,10 @@ async function loadGraph() {
     node.append("text")
         .attr("dx", 12)
         .attr("dy", ".35em")
-        .text(d => d.label);
+        .text(d => d.labelShort || d.label);
+
+    // Tooltip with full label
+    node.append('title').text(d => d.labelFull || d.label);
 
     simulation
         .nodes(data.nodes)
@@ -72,32 +135,41 @@ async function loadGraph() {
 }
 
 async function showDetails(d) {
-    document.getElementById('node-title').textContent = d.label;
+    document.getElementById('node-title').textContent = d.labelFull || d.label;
     document.getElementById('node-type').textContent = d.type;
     document.getElementById('node-id').textContent = d.id;
-    
-    const sourceEl = document.getElementById('node-source');
-    sourceEl.textContent = 'LOADING SOURCE...';
 
-    if (d.type === 'file') {
+    // Default: no editing
+    currentEditablePath = null;
+    editorControls.style.display = 'none';
+    setEditing(false);
+
+    sourceEl.value = 'LOADING SOURCE...';
+
+    // Only allow editing markdown files we have a concrete path for.
+    // - file node: d.path
+    // - event node: d.source (the backing file)
+    const pathToLoad = (d.type === 'file') ? d.path : (d.type === 'event' ? d.source : null);
+
+    if (pathToLoad) {
         try {
-            const res = await fetch(`/api/source?path=${encodeURIComponent(d.path)}`);
+            const res = await fetch(`/api/source?path=${encodeURIComponent(pathToLoad)}`);
             const text = await res.text();
-            sourceEl.textContent = text;
+            sourceEl.value = text;
+            lastLoadedText = text;
+            currentEditablePath = pathToLoad;
+            editorControls.style.display = 'flex';
+            setEditing(false);
         } catch (err) {
-            sourceEl.textContent = 'ERROR LOADING SOURCE.';
+            sourceEl.value = 'ERROR LOADING SOURCE.';
         }
-    } else if (d.type === 'event') {
-        try {
-            const res = await fetch(`/api/source?path=${encodeURIComponent(d.source)}`);
-            const text = await res.text();
-            sourceEl.textContent = text;
-        } catch (err) {
-            sourceEl.textContent = 'ERROR LOADING SOURCE.';
-        }
-    } else {
-        sourceEl.textContent = `CONCEPT: ${d.label}`;
+        return;
     }
+
+    // Non-file nodes: read-only summary
+    sourceEl.value = (d.type === 'concept' || d.type === 'tag')
+        ? `${d.type.toUpperCase()}: ${d.label}`
+        : `NODE: ${d.label}`;
 }
 
 function dragstarted(event, d) {
