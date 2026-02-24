@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPENCLAW // MEMORY VISUALIZER</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        :root {
+            /* OpenClaw Master Palette from control-ui-custom */
+            --accent: #00ff41;
+            --accent-hover: #2bff6b;
+            --accent-muted: #00ff41;
+            --accent-subtle: rgba(0, 255, 65, 0.14);
+            --accent-glow: rgba(0, 255, 65, 0.25);
+            --text: #c9ffe0;
+            --text-strong: #eafff0;
+            --muted: #55c985;
+            --muted-strong: #2aa85d;
+            --bg: #08110b;
+            --panel: rgba(8, 17, 11, 0.9);
+            --border: rgba(0, 255, 65, 0.2);
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        body, html, *, button, input, textarea {
+            font-family: var(--font-mono) !important;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            animation: flicker 0.15s infinite;
+        }
+
+        /* CRT Scanline Effect */
+        body::before {
+            content: " ";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.2) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 10000;
+            background-size: 100% 3px, 3px 100%;
+            pointer-events: none;
+            opacity: 0.4;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 0.98; }
+            50% { opacity: 1; }
+            100% { opacity: 0.98; }
+        }
+
+        #graph {
+            flex: 1;
+            cursor: grab;
+        }
+
+        #side-panel {
+            width: 450px;
+            background-color: var(--panel);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+            position: relative;
+            z-index: 20;
+        }
+
+        header {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 30;
+            pointer-events: none;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-shadow: 0 0 8px var(--accent-glow);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 10px var(--accent);
+            margin-right: 10px;
+        }
+
+        .node circle {
+            stroke: var(--accent);
+            stroke-width: 1px;
+            cursor: pointer;
+            filter: drop-shadow(0 0 5px var(--accent-glow));
+        }
+
+        .node text {
+            font-size: 10px;
+            fill: var(--text);
+            pointer-events: none;
+            text-shadow: 0 0 5px black;
+        }
+
+        .link {
+            stroke: var(--accent);
+            stroke-opacity: 0.2;
+            stroke-width: 1px;
+        }
+
+        .node-file circle { fill: #3b82f6; }
+        .node-concept circle { fill: var(--accent); }
+        .node-tag circle { fill: #f59e0b; }
+        .node-event circle { fill: #a855f7; }
+
+        h1, h2 {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-strong);
+            text-shadow: 0 0 8px var(--accent-glow);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+
+        .sg-textarea {
+            width: 100%;
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            padding: 12px;
+            color: var(--text);
+            font-size: 12px;
+            line-height: 1.6;
+            outline: none;
+            resize: none;
+            border-radius: 4px;
+        }
+
+        .sg-textarea:focus {
+            border-color: var(--accent);
+            box-shadow: inset 0 0 10px rgba(0, 255, 65, 0.05);
+        }
+
+        .sg-btn {
+            background: var(--accent-subtle);
+            color: var(--accent);
+            border: 1px solid var(--border);
+            padding: 8px 16px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+            border-radius: 4px;
+        }
+
+        .sg-btn:hover {
+            background: var(--accent);
+            color: black;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .details-label {
+            color: var(--muted-strong);
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .blink {
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0.2; }
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--muted-strong); border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <header>
+        <div><span class="status-dot blink"></span> MEMORY-VIZ // KERNEL_VIZ</div>
+    </header>
+
+    <div id="graph"></div>
+
+    <div id="side-panel">
+        <div id="legend" style="margin-bottom: 32px;">
+            <h2>LEGEND</h2>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                <div class="row" style="display:flex; align-items:center; gap:8px;">
+                    <div style="width: 8px; height: 8px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 5px #3b82f6;"></div>
+                    <div class="details-label" style="margin-bottom:0">FILE</div>
+                </div>
+                <div class="row" style="display:flex; align-items:center; gap:8px;">
+                    <div style="width: 8px; height: 8px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 5px var(--accent);"></div>
+                    <div class="details-label" style="margin-bottom:0">CONCEPT</div>
+                </div>
+                <div class="row" style="display:flex; align-items:center; gap:8px;">
+                    <div style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%; box-shadow: 0 0 5px #f59e0b;"></div>
+                    <div class="details-label" style="margin-bottom:0">TAG</div>
+                </div>
+                <div class="row" style="display:flex; align-items:center; gap:8px;">
+                    <div style="width: 8px; height: 8px; background: #a855f7; border-radius: 50%; box-shadow: 0 0 5px #a855f7;"></div>
+                    <div class="details-label" style="margin-bottom:0">EVENT</div>
+                </div>
+            </div>
+        </div>
+
+        <h2 id="node-title">TERMINAL_READY</h2>
+        
+        <div id="node-info" style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+            <div>
+                <div class="details-label">NODE_TYPE</div>
+                <div id="node-type" style="font-size: 13px; font-weight: 700;">--</div>
+            </div>
+            <div>
+                <div class="details-label">ENTITY_ID</div>
+                <div id="node-id" style="font-size: 13px; font-weight: 700; color: var(--accent);">--</div>
+            </div>
+        </div>
+
+        <div id="editor-controls" style="display:none; gap:12px; margin-bottom:16px;">
+            <button id="btn-edit" class="sg-btn">EDIT</button>
+            <button id="btn-save" class="sg-btn" style="display:none; border-color: var(--accent);">SAVE</button>
+            <button id="btn-cancel" class="sg-btn" style="display:none;">CANCEL</button>
+            <button id="btn-delete" class="sg-btn" style="border-color: #ef4444; color: #ef4444;">DELETE</button>
+            <span id="save-status" class="details-label" style="margin-left:auto;"></span>
+        </div>
+
+        <div class="details-label">DATA_SOURCE</div>
+        <textarea id="node-source" class="sg-textarea" readonly placeholder="SELECT_NODE_FOR_TELEMETRY"></textarea>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
