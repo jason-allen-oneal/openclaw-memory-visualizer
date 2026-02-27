@@ -29,6 +29,7 @@ const editorControls = document.getElementById('editor-controls');
 const btnEdit = document.getElementById('btn-edit');
 const btnSave = document.getElementById('btn-save');
 const btnCancel = document.getElementById('btn-cancel');
+const btnDelete = document.getElementById('btn-delete');
 const saveStatus = document.getElementById('save-status');
 const sourceEl = document.getElementById('node-source');
 
@@ -36,6 +37,7 @@ function setEditing(on) {
     isEditing = on;
     sourceEl.readOnly = !on;
     btnEdit.style.display = on ? 'none' : 'inline-block';
+    btnDelete.style.display = on ? 'none' : 'inline-block';
     btnSave.style.display = on ? 'inline-block' : 'none';
     btnCancel.style.display = on ? 'inline-block' : 'none';
     saveStatus.textContent = '';
@@ -45,6 +47,34 @@ btnEdit.addEventListener('click', () => {
     if (!currentEditablePath) return;
     setEditing(true);
     sourceEl.focus();
+});
+
+btnDelete.addEventListener('click', async () => {
+    if (!currentEditablePath) return;
+    if (!confirm(`CAUTION: Delete ${currentEditablePath}?\nThis will remove the file from disk (a backup will be created).`)) return;
+
+    saveStatus.textContent = 'DELETING...';
+
+    try {
+        const res = await fetch(`/api/source?path=${encodeURIComponent(currentEditablePath)}`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+
+        saveStatus.textContent = 'DELETED.';
+        sourceEl.value = 'FILE_DELETED';
+        currentEditablePath = null;
+        editorControls.style.display = 'none';
+
+        // Wait a second then reload to show new graph state
+        setTimeout(() => location.reload(), 1000);
+    } catch (e) {
+        saveStatus.textContent = `ERROR: ${e.message}`;
+    }
 });
 
 btnCancel.addEventListener('click', () => {

@@ -102,6 +102,40 @@ app.put('/api/source', (req, res) => {
   }
 });
 
+app.delete('/api/source', (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).json({ error: 'Missing path' });
+
+  const fullPath = path.resolve(SIGNAL_GRAPH_ROOT, filePath);
+
+  // Security: must remain under root
+  if (!fullPath.startsWith(SIGNAL_GRAPH_ROOT)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  // Safety: only allow deleting markdown files
+  if (!fullPath.toLowerCase().endsWith('.md')) {
+    return res.status(400).json({ error: 'Only .md files can be deleted via this API' });
+  }
+
+  try {
+    if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'File not found' });
+
+    // Move to .trash or just backup and unlink
+    const backupPath = `${fullPath}.del-${Date.now()}`;
+    fs.copyFileSync(fullPath, backupPath);
+    fs.unlinkSync(fullPath);
+
+    // Invalidate cache
+    cachedGraph = null;
+    lastParseTime = 0;
+
+    return res.json({ ok: true, backup: path.relative(SIGNAL_GRAPH_ROOT, backupPath) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`SignalGraph server running on http://127.0.0.1:${PORT}`);
   console.log(`Root directory: ${SIGNAL_GRAPH_ROOT}`);
